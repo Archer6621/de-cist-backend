@@ -1,5 +1,7 @@
 import sys
 
+from retrpred.src.INP_idf_functions.get_retrofit_data2 import get_initial_r_values
+from retrpred.src.INP_idf_functions.woon_functions_distr2 import map_archetype
 from diskcache import Cache
 print("Loading Geomeppy...")
 from geomeppy import IDF
@@ -42,6 +44,42 @@ IDF.setiddname(iddfile)
 # counter = -1
 # for idx, building in gdf.iterrows():
 
+default_cooling = {"cooling_system":"no_cooling", "dx_cop": 4}
+default_heating = {"heating_system": "gas_boiler", "boiler_eff": 0.95, "hp_cop": 5}
+
+def create_init_record(building):
+    init_rec = {}
+    mapped_archetype = map_archetype(building.n_archetype)
+    for component in ["inf_rate","r_wall_ins","r_floor_ins","r_roof_ins","u_window","shgc"]:
+        init_rec[component] = get_initial_r_values(mapped_archetype, component)
+
+    init_rec |= default_cooling
+    init_rec |= default_heating
+    init_rec["sim"] = 0 
+
+    # r_*** == r_***_ins
+    init_rec["r_wall"] = init_rec["r_wall_ins"]
+    init_rec["r_floor"] = init_rec["r_floor_ins"]
+    init_rec["r_roof"] = init_rec["r_roof_ins"]
+
+    # All ageing to 1 
+    init_rec["ageing_wall"] = 1
+    init_rec["ageing_floor"] = 1
+    init_rec["ageing_roof"] = 1
+
+    # All years to 0
+    init_rec["year_wall"] = 0
+    init_rec["year_floor"] = 0
+    init_rec["year_window"] = 0
+    init_rec["year_roof"] = 0
+    init_rec["year_gas_boiler"] = 0
+    init_rec["year_heat_pump"] = 0
+    init_rec["year_airco"] = 0
+
+    init_rec["u_glazing_type"] = 2
+    return init_rec
+
+
 def precache(idx, building):
     # counter += 1
     print(f"{0:>10} | ", '[.] Pre-caching:', idx)
@@ -56,13 +94,13 @@ def precache(idx, building):
         print(f"{0:>10} | ", "[n] Skipping, no niemann data available:", f'"{idx:0>16}"')
         return
     try:
-        # TODO: Also add underheat/overheat.
-        (idf, building, records_init_singleb) = get_initialized_idf(int(idx), 2)
-        first_rec = function_make_input_vector_and_predict(idf, building, records_init_singleb[1:])[0]  # Predict only for the last init record, which has the gas boiler as default.
+        (idf, building, records_init_singleb) = get_initialized_idf(int(idx), 1)
+        init_rec = [create_init_record(building)]
+        first_rec = function_make_input_vector_and_predict(idf, building, init_rec)[0]
         heating = first_rec["heating_dem_m2"]
         cooling = first_rec["cooling_dem_m2"]
         gas = first_rec["heating_gas_m2"]
-        elec = first_rec["heating_elec_m2"]
+        elec = first_rec["heating_elec_m2"] + first_rec["cooling_elec_m2"]
         co2 = first_rec["carbon emissions"]
         under = first_rec["avg_underheat_hours"]
         over = first_rec["avg_overheat_hours"]

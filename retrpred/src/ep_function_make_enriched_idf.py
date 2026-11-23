@@ -3,6 +3,8 @@ import shutil
 from geomeppy import IDF
 from pathlib import Path
 
+root_path = Path(__file__).parent
+
 def make_enriched_idf(idf, building, records): 
 
     template_idf_path = os.path.join(building.output_dir, f'{building.bag_adres_id}.idf')

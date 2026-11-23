@@ -21,9 +21,9 @@ def create_init_record(building):
     init_rec["r_roof"] = init_rec["r_roof_ins"]
 
     # All ageing to 1 
-    init_rec["ageing_wall"] = 1
-    init_rec["ageing_floor"] = 1
-    init_rec["ageing_roof"] = 1
+    init_rec["ageing_wall"] = 0.9999
+    init_rec["ageing_floor"] = 0.9999
+    init_rec["ageing_roof"] = 0.9999
 
     # All years to 0
     init_rec["year_wall"] = 0

@@ -3,6 +3,7 @@ import pandas as pd
 from gen_building_class import Building
 from OUT_functions.output_predict2 import load_models, predict_heating, heating_consumption, predict_cooling, cooling_consumption, predict_overheat_underheat
 from INP_idf_functions.woon_functions_distr2 import map_archetype
+import numpy as np
 
 def function_make_input_vector_and_predict(idf, building, records):
 
@@ -54,11 +55,15 @@ def function_make_input_vector_and_predict(idf, building, records):
         cooling_cons_m2 = cooling_consumption(record['cooling_system'], cooling_dem_m2, record['dx_cop'], model_poly3_elec_cool_regr)
         
         underheat_m2, overheat_m2 = predict_overheat_underheat(df, model_over_under_pred, input_scaler_over_under, output_scaler_over_under, device="cpu")
+
         if (record['heating_system'] == "gas_boiler") or (record['heating_system'] == "district_heating") or (record['heating_system'] == "heat_pump"):
             underheat_m2 = 0
         if record['cooling_system'] == "dx_airco":
             overheat_m2 = 0
-        
+
+        avg_underheat_hours = np.clip(underheat_m2*building.n_total_floor_area/building.n_num_floor, a_min=0, a_max=None)
+        avg_overheat_hours = np.clip(overheat_m2*building.n_total_floor_area/building.n_num_floor, a_min=0, a_max=None)
+
         carbon_emissions = heat_cons_gas_m2 * gas_coeff + heat_cons_elec_m2 * elec_coeff + heat_cons_distr_heat_m2 * dh_coeff + cooling_cons_m2 * elec_coeff
 
         records_res.append({
@@ -68,6 +73,7 @@ def function_make_input_vector_and_predict(idf, building, records):
                     "heating_elec_m2": float(heat_cons_elec_m2), "heating_distr_heat_m2": float(heat_cons_distr_heat_m2),
                     "cooling_dem_m2": float(cooling_dem_m2), "cooling_elec_m2": float(cooling_cons_m2),
                     "underheat_m2": float(underheat_m2), "overheat_m2": float(overheat_m2),
+                    "avg_underheat_hours": float(avg_underheat_hours), "avg_overheat_hours": float(avg_overheat_hours),
                     "r_wall": float(record['r_wall']),
                     "r_wall_ins": float(record['r_wall_ins']),
                     "r_roof": float(record['r_roof']),

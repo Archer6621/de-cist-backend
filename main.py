@@ -3,6 +3,7 @@ from fastapi import FastAPI, Response
 import geopandas as gpd
 import json
 # from pyogrio import set_gdal_config_options
+from precache import create_init_record, default_cooling, default_heating
 from pydantic import BaseModel
 from shapely import Polygon, convex_hull
 from pathlib import Path
@@ -70,7 +71,7 @@ niemann_existence = {x.replace('"','') for y in nieman_data['BAG Pand ID'].dropn
 iddfile  = "C:/EnergyPlusV23-1-0/Energy+.idd"
 IDF.setiddname(iddfile)
 
-n_sim=2
+n_sim=1
 
 
 
@@ -211,9 +212,12 @@ def get_predictions(req: PredictRequest,  user_id: str):
         if k == "window":
             retrofit_plan[k][1] = f"retrofit_{int(req.r_package.values[k])}"
 
-    # TODO: Need to have a more elegant way of setting the default, e.g. pinning it in the precache script
-    #       and then importing it from there, so that all code uses the same ground truth.
-    retrofit_plan["heating_system"][1] = "retrofit_gas_boiler"
+    # NOTE: Not necessary. The defaults are already obtained from "create_init_record",
+    #       and the frontend only sends deviations from the default. The only important thing
+    #       is that these defaults get synced between the two somehow.
+    # 
+    # retrofit_plan["heating_system"][1] = f"retrofit_{default_heating['heating_system']}"
+    # retrofit_plan["cooling_system"][1] = f"retrofit_{default_cooling['cooling_system']}"
 
     for retrofit in req.r_active:
         system = f"{retrofit.retro_type}_system"
@@ -225,23 +229,21 @@ def get_predictions(req: PredictRequest,  user_id: str):
         #         retrofit_plan[k][1] = retrofit.params[k]
 
 
-        retrofit_plan
-    # retrofit_plan["heating_system"][1] = "retrofit_heat_pump"
-    # retrofit_plan["cooling_system"][1] = "retrofit_dx_airco"
 
     cache = user_cache(user_id)
     for bag_id in req.buildings:
         # print("INPUT:", idf, building, records_init_singleb, building_lifetime, retrofit_plan)
         if req.r_package.name !=  None or req.r_active:
             (idf, building, records_init_singleb) = get_initialized_idf(bag_id, n_sim)
-            rec = function_make_input_vector_and_predict_over_time(idf, building, records_init_singleb[1:], building_lifetime, retrofit_plan)[-1]
+            init_rec  = [create_init_record(building)]
+            rec = function_make_input_vector_and_predict_over_time(idf, building, init_rec, building_lifetime, retrofit_plan)[-1]
             # print("OUTPUT:", recs)
 
             # recs = function_make_input_vector_and_predict(idf, building, records_init_singleb)[0]  # For now, just take the first.
             heating = rec['heating_dem_m2']
             cooling = rec['cooling_dem_m2']
             gas = rec["heating_gas_m2"]
-            elec = rec["heating_elec_m2"]
+            elec = rec["heating_elec_m2"] + rec["cooling_elec_m2"]
             co2 = rec["carbon_emissions"]
             under = rec["avg_underheat_hours"]
             over = rec["avg_overheat_hours"]

@@ -1,5 +1,6 @@
 
-
+from retrpred.src.INP_idf_functions.get_retrofit_data2 import get_initial_r_values
+from retrpred.src.INP_idf_functions.woon_functions_distr2 import map_archetype
 
 default_cooling = {"cooling_system":"no_cooling", "dx_cop": 4}
 default_heating = {"heating_system": "gas_boiler", "boiler_eff": 0.95, "hp_cop": 5}
@@ -40,8 +41,7 @@ def create_init_record(building):
 if __name__ == '__main__':
     import sys
 
-    from retrpred.src.INP_idf_functions.get_retrofit_data2 import get_initial_r_values
-    from retrpred.src.INP_idf_functions.woon_functions_distr2 import map_archetype
+
     from diskcache import Cache
     print("Loading Geomeppy...")
     from geomeppy import IDF

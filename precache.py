@@ -73,6 +73,7 @@ if __name__ == '__main__':
     IDF.setiddname(iddfile)
 
     def precache(idx, building):
+
         # counter += 1
         print(f"{0:>10} | ", '[.] Pre-caching:', idx)
         if idx in pred_existence:

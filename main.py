@@ -65,7 +65,7 @@ pure_building_cache = Cache(cache_root / 'pure_buildings')
 pred_existence = set(base_prediction_cache.iterkeys())
 broken = set(broken_buildings_cache.iterkeys())
 
-niemann_existence = {x.replace('"','') for y in nieman_data['BAG Pand ID'].dropna().apply(lambda x : x[1:-1].split(',')) for x in y}
+niemann_existence = {int(x.replace('"','')) for y in nieman_data['BAG Pand ID'].dropna().apply(lambda x : x[1:-1].split(',')) for x in y}
 
 
 iddfile  = "C:/EnergyPlusV23-1-0/Energy+.idd"
@@ -121,10 +121,11 @@ def get_retrofitted_buildings(user_id: str):
 def get_buildings(req: BuildingsRequest,  user_id: str):
     # clipped = gdf_wgs84.clip(Polygon(req.coordinates))
     broken = set(broken_buildings_cache.iterkeys())
-    indices = {x for x in app.state.gdf.index[app.state.gdf.sindex.query(convex_hull(Polygon(req.coordinates)), predicate="intersects")]}
+    indices: set[int] = {x for x in app.state.gdf.index[app.state.gdf.sindex.query(convex_hull(Polygon(req.coordinates)), predicate="intersects")]}
+    # print('??', indices)
     indices &= niemann_existence
     indices -= broken
-    # print("Getting buildings...")
+    print("Getting buildings...", indices)
     # Perform checks against Niemann data and exclude.
     exclude = set()
     
@@ -134,7 +135,7 @@ def get_buildings(req: BuildingsRequest,  user_id: str):
         # bag_adres_id = building_data['BAG Adres ID'].values[0] if not building_data.empty else None     
         building_data = get_niemann(idx)
         if building_data is not None:
-            # print(f"checking {idx}", building_data['Nieman Typologie'], np.array([9, 10, 11, 12]), building_data['Nieman Typologie'] in np.array([9, 10, 11, 12]) )
+            print(f"checking {idx}", building_data['Nieman Typologie'], np.array([9, 10, 11, 12]), building_data['Nieman Typologie'] in np.array([9, 10, 11, 12]) )
             if not np.isnan(building_data['Nieman Typologie']) and int(building_data['Nieman Typologie']) in [9, 10, 11, 12]:
                 exclude.add(idx)
             if "woonfunctie" not in building_data['Gebruiksdoel']:
@@ -149,21 +150,21 @@ def get_buildings(req: BuildingsRequest,  user_id: str):
 
     for idx in indices:
 
-        # print(idx)
+        print(idx, type(idx))
         # print(set(user_cache(user_id).iterkeys()))
         init: dict[str, float] = base_prediction_cache.get(idx, {})
         user: dict[str, float] = ucache.get(int(idx), {})
-        if idx not in pure_building_cache:
+        if int(idx) not in pure_building_cache:
             try:
-                pure_building_cache[idx] = get_initialized_idf(idx, n_sim)[1]
+                pure_building_cache[int(idx)] = get_initialized_idf(int(idx), n_sim)[1]
                 
             except Exception as e:
                 print(f"Could not retrieve idf/building for '{idx}', marking as broken.")
-                broken_buildings_cache[idx] = f"{type(e).__name__}: {e}"
+                broken_buildings_cache[int(idx)] = f"{type(e).__name__}: {e}"
                 broken.add(idx)
                 continue
         building = pure_building_cache[idx]
-        # print("Loading building", idx)
+        print("Loaded building", idx)
 
         # Add building-specific data
         intersected.loc[idx, "total_floor_area"] = building.n_total_floor_area
@@ -198,13 +199,13 @@ def reset_user(user_id: str):
 @app.post("/api/predict/")
 def get_predictions(req: PredictRequest,  user_id: str):
     res = {}
-
+    print("setting up")
     # Default to 1 year of sim
     building_lifetime = 2
 
     # Put together retrofit plan
     components = ["wall", "roof", "floor", "window", "heating_system", "cooling_system", "inf_rate"]
-    retrofit_plan: dict[str, list[str|float]] = {component: ["do_nothing"] * 70 for component in components}
+    retrofit_plan: dict[str, list[str|float]] = {component: ["do_nothing"] * 2 for component in components}
     for k in req.r_package.values:
         retrofit_plan[k][1] = f"retrofit_{req.r_package.values[k]}"
 
@@ -234,11 +235,21 @@ def get_predictions(req: PredictRequest,  user_id: str):
     for bag_id in req.buildings:
         # print("INPUT:", idf, building, records_init_singleb, building_lifetime, retrofit_plan)
         if req.r_package.name !=  None or req.r_active:
+            print("getting IDF")
             (idf, building, records_init_singleb) = get_initialized_idf(bag_id, n_sim)
+            
+            # print("creating initial recrd")
             init_rec  = [create_init_record(building)]
+
+            print("INITIAL STATE:")
+            print(init_rec)
+            print("RETROFIT TO APPLY:")
+            print(retrofit_plan)
+
+            print("predicting..")
             rec = function_make_input_vector_and_predict_over_time(idf, building, init_rec, building_lifetime, retrofit_plan)[-1]
             # print("OUTPUT:", recs)
-
+            print("pred finished!")
             # recs = function_make_input_vector_and_predict(idf, building, records_init_singleb)[0]  # For now, just take the first.
             heating = rec['heating_dem_m2']
             cooling = rec['cooling_dem_m2']
@@ -249,15 +260,17 @@ def get_predictions(req: PredictRequest,  user_id: str):
             over = rec["avg_overheat_hours"]
 
             # Unify this somehow... We either use zero-prefixed strings, or we use integers
-            fixed_bag_id = f"{bag_id:0>16}"
-            original: dict[str, float] | None = base_prediction_cache.get(fixed_bag_id, None)
+            # fixed_bag_id = f"{bag_id:0>16}"
+            original: dict[str, float] | None = base_prediction_cache.get(bag_id, None)
 
             # if original and "cooling_demand" in original and "heating_demand" in original:
             #     res[bag_id] |= {"delta": {"heating_demand": heating-original["heating_demand"], "cooling_demand": cooling-original["cooling_demand"]}}
 
             preds: dict = {"heat": heating, "cool":cooling, "elec": elec,"gas": gas,"co2": co2, "under": under, "over": over}
+            print("predicted", preds)
         else:
-            preds: dict = base_prediction_cache.get(bag_id, {})
+            preds: dict = {}
+        
         retr = {}
         meta = {}
 

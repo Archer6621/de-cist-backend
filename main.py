@@ -24,7 +24,7 @@ import numpy as np
 from dataloader import load_data
 from contextlib import asynccontextmanager
 
-from util import cache_root, get_initialized_idf, get_niemann
+from util import BigCache, cache_root, get_initialized_idf, get_niemann
 
 class ActiveRetrofit(BaseModel):
     name: str
@@ -59,9 +59,9 @@ app = FastAPI(lifespan=lifespan)
 
 caches: dict[str, Cache] = dict()
 
-base_prediction_cache = Cache(cache_root / 'prediction')
-broken_buildings_cache = Cache(cache_root / 'broken')
-pure_building_cache = Cache(cache_root / 'pure_buildings')
+base_prediction_cache = BigCache(cache_root / 'prediction')
+broken_buildings_cache = BigCache(cache_root / 'broken')
+pure_building_cache = BigCache(cache_root / 'pure_buildings')
 pred_existence = set(base_prediction_cache.iterkeys())
 broken = set(broken_buildings_cache.iterkeys())
 

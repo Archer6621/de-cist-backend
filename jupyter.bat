@@ -1,1 +1,1 @@
-"JUPYTER_PATH=%CD%\.venv\share\jupyter" && uv run jupyter lab --notebook-dir="C:\Users\shaad\Repositories\de-cist-backend\retrpred"
+set JUPYTER_PATH=%CD%\.venv\share\jupyter && uv run jupyter lab --notebook-dir="C:\Users\shaad\Repositories\de-cist-backend\retrpred"

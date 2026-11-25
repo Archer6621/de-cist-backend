@@ -1,6 +1,13 @@
 
+import time
+
+from requests import HTTPError
 from retrpred.src.INP_idf_functions.get_retrofit_data2 import get_initial_r_values
 from retrpred.src.INP_idf_functions.woon_functions_distr2 import map_archetype
+from util import BigCache
+
+import warnings
+warnings.filterwarnings("ignore")
 
 default_cooling = {"cooling_system":"no_cooling", "dx_cop": 4}
 default_heating = {"heating_system": "gas_boiler", "boiler_eff": 0.95, "hp_cop": 5}
@@ -42,7 +49,6 @@ if __name__ == '__main__':
     import sys
 
 
-    from diskcache import Cache
     print("Loading Geomeppy...")
     from geomeppy import IDF
 
@@ -63,11 +69,11 @@ if __name__ == '__main__':
 
     gdf = load_data()
 
-    base_prediction_cache = Cache(cache_root / 'prediction')
-    broken_buildings_cache = Cache(cache_root / 'broken')
+    base_prediction_cache = BigCache(cache_root / 'prediction')
+    broken_buildings_cache = BigCache(cache_root / 'broken')
     pred_existence = set(base_prediction_cache.iterkeys())
     niemann_existence = {x for y in nieman_data['BAG Pand ID'].dropna().apply(lambda x : x[1:-1].split(',')) for x in y}
-    pure_building_cache = Cache(cache_root / 'pure_buildings')
+    pure_building_cache = BigCache(cache_root / 'pure_buildings')
 
     iddfile  = "C:/EnergyPlusV23-1-0/Energy+.idd"
     IDF.setiddname(iddfile)
@@ -75,44 +81,52 @@ if __name__ == '__main__':
     def precache(idx, building):
 
         # counter += 1
-        print(f"{0:>10} | ", '[.] Pre-caching:', idx)
+        tries = 0
+        print(f"{idx:>16} | ", '[.] Pre-caching')
         if idx in pred_existence:
-            print(f"{0:>10} | ", "[o] Already calculated", idx)
+            print(f"{idx:>16} | ", "[o] Already calculated")
             return
         # TODO: Add option to skip this in commandline args, e.g. --redo-errored
         if idx in broken_buildings_cache:
-            print(f"{0:>10} | ", "[s] Errored before, skipping", idx)
+            print(f"{idx:>16} | ", "[s] Errored before, skipping")
             return
         if f'"{idx:0>16}"' not in niemann_existence:
-            print(f"{0:>10} | ", "[n] Skipping, no niemann data available:", f'"{idx:0>16}"')
+            print(f"{idx:>16} | ", "[n] Skipping, no niemann data available for", f'"{idx:0>16}"')
             return
-        try:
-            (idf, building, records_init_singleb) = get_initialized_idf(int(idx), 1)
-            init_rec = [create_init_record(building)]
-            first_rec = function_make_input_vector_and_predict(idf, building, init_rec)[0]
-            heating = first_rec["heating_dem_m2"]
-            cooling = first_rec["cooling_dem_m2"]
-            gas = first_rec["heating_gas_m2"]
-            elec = first_rec["heating_elec_m2"] + first_rec["cooling_elec_m2"]
-            co2 = first_rec["carbon emissions"]
-            under = first_rec["avg_underheat_hours"]
-            over = first_rec["avg_overheat_hours"]
+        while tries < 5:
+            try:
+                (idf, building, records_init_singleb) = get_initialized_idf(int(idx), 1)
+                init_rec = [create_init_record(building)]
+                first_rec = function_make_input_vector_and_predict(idf, building, init_rec)[0]
+                heating = first_rec["heating_dem_m2"]
+                cooling = first_rec["cooling_dem_m2"]
+                gas = first_rec["heating_gas_m2"]
+                elec = first_rec["heating_elec_m2"] + first_rec["cooling_elec_m2"]
+                co2 = first_rec["carbon emissions"]
+                under = first_rec["avg_underheat_hours"]
+                over = first_rec["avg_overheat_hours"]
 
-            base_prediction_cache.set(idx, {"heat": heating, "cool":cooling, "elec": elec,"gas": gas,"co2": co2, "under":under, "over":over})
-            
-            # Also set the pure building cache.
-            pure_building_cache.set(idx, building)
+                base_prediction_cache.set(idx, {"heat": heating, "cool":cooling, "elec": elec,"gas": gas,"co2": co2, "under":under, "over":over})
+                
+                # Also set the pure building cache.
+                pure_building_cache.set(idx, building)
 
-            # Also precache the niemann data.
-            _ = get_niemann(idx)
+                # Also precache the niemann data.
+                _ = get_niemann(idx)
 
-            print(f"{0:>10} | ", "[s] SUCCESS", idx)
-        except KeyboardInterrupt:
-            print("Exiting...")
-            sys.exit()
-        except Exception as e:
-            print(f"{0:>10} | ", "[!] Could not process building", idx, type(e).__name__, e)
-            broken_buildings_cache.set(idx, f"{type(e).__name__}: {e}");
+                print(f"{idx:>16} | ", "[s] SUCCESS")
+                break
+            except HTTPError as e:
+                print(f"{idx:>16} | ", f"[?] HTTPError from BAG server ({type(e).__name__, e}), retrying in a bit...")
+                tries += 1
+                time.sleep(3)
+            except KeyboardInterrupt:
+                print("Exiting...")
+                sys.exit()
+            except Exception as e:
+                print(f"{idx:>16} | ", "[!] Could not process building", type(e).__name__, e)
+                broken_buildings_cache.set(idx, f"{type(e).__name__}: {e}");
+                break
 
     from joblib import Parallel, delayed
     with tqdm_joblib(tqdm(desc="Precaching", total=len(gdf.index))) as progress_bar:
